@@ -33,7 +33,6 @@ RUN set -x \
 COPY sysctl.conf /etc/sysctl.conf
 COPY limits.conf /etc/security/limits.conf
 RUN set -x \
-    && sysctl -p \
     && groupadd gpadmin \
     && useradd  gpadmin -g gpadmin -d /home/gpadmin \
     && echo "gpadmin" | passwd --stdin gpadmin \

@@ -1,0 +1,127 @@
+buildscript {
+    repositories {
+        maven { url("https://maven.aliyun.com/repository/public") }
+        maven { url("https://maven.aliyun.com/repository/spring") }
+        maven { url("https://maven.aliyun.com/repository/mapr-public") }
+        maven { url("https://maven.aliyun.com/repository/spring-plugin") }
+        maven { url("https://maven.aliyun.com/repository/gradle-plugin") }
+        maven { url("https://maven.aliyun.com/repository/google") }
+        maven { url("https://maven.aliyun.com/repository/jcenter") }
+    }
+}
+plugins {
+    id "de.undercouch.download" version "4.1.1"
+}
+
+def mainVersion = "1.0.0"
+Map<String, String> envMap = new HashMap<>(System.getenv())
+def imageRepository = envMap.getOrDefault("IMAGE_REPOSITORY ", "wangz2019/greenplum-docker")
+def greenplumPackageUrl = envMap.getOrDefault(
+        "GREEN_PLUM_PACKAGE_URL",
+        "https://github.com/greenplum-db/gpdb/releases/download/6.8.1/greenplum-db-6.8.1-rhel7-x86_64.rpm"
+)
+def arch = "amd64"
+String imageWithTag = "${imageRepository}:${mainVersion}-${arch}"
+File runtimeDockerDirectory = project.file("${project.buildDir}/runtime/docker")
+task buildDockerImage(type: Exec) {
+    def centosSystemdTag = "1.0.0-centos7.9.2009-linux-amd64"
+    doFirst {
+        runtimeDockerDirectory.parentFile.mkdirs()
+        runtimeDockerDirectory.delete()
+        copy {
+            from project.file("docker")
+            into runtimeDockerDirectory
+        }
+        String downloadDirectory = "${project.buildDir}/runtime/download"
+        project.file(downloadDirectory).mkdirs()
+        download {
+            src greenplumPackageUrl
+            dest downloadDirectory
+            tempAndMove true
+            overwrite false
+        }
+        copy {
+            from project.file("${downloadDirectory}/greenplum-db-6.8.1-rhel7-x86_64.rpm")
+            into runtimeDockerDirectory
+        }
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "buildx",
+            "build",
+            "--platform", "linux/${arch}",
+            "--rm", runtimeDockerDirectory,
+            "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/Dockerfile"),
+            "-t", imageWithTag,
+            "--build-arg", "CENTOS_SYSTEMD_TAG=${centosSystemdTag}",
+    )
+}
+
+task pushImage(type: Exec) {
+    executable("docker")
+    args(
+            "push", imageWithTag,
+    )
+    dependsOn(buildDockerImage)
+}
+
+def keysDirectory = project.file("${project.buildDir}/runtime/keys")
+task generateSshKey(type: Exec) {
+    if (project.file("${keysDirectory}/id_rsa").exists()
+            && project.file("${keysDirectory}/id_rsa.pub").exists()) {
+        println("skip ${name} as files exists")
+        enabled(false)
+    }
+    doFirst {
+        keysDirectory.mkdirs()
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("ssh-keygen")
+    args(
+            "-t", "rsa",
+            "-b", "4096",
+            "-N", "",
+            "-f", "${keysDirectory}/id_rsa"
+    )
+}
+
+def containerName = "greenplum"
+task runDockerContainer(type: Exec) {
+    def hostname = "gpmaster"
+    doFirst {
+        keysDirectory.mkdirs()
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "run", "--rm",
+            "-p", "1022:22",
+            "--platform=linux/amd64",
+            "--name", containerName,
+            "--hostname", hostname,
+            "--privileged",
+            "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
+            "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
+            "-e", "HOSTNAME=${hostname}",
+            "-d", imageWithTag,
+    )
+    dependsOn(generateSshKey)
+}
+task initGpService(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "exec", containerName,
+            "/opt/greenplum/entry_point.sh",
+    )
+}
+
+task stopDockerContainer(type: Exec) {
+    executable("docker")
+    args(
+            "stop", containerName
+    )
+}

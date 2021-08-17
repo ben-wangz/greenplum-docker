@@ -58,7 +58,7 @@ task buildDockerImage(type: Exec) {
     )
 }
 
-task pushImage(type: Exec) {
+task pushDockerImage(type: Exec) {
     executable("docker")
     args(
             "push", imageWithTag,
@@ -149,3 +149,5 @@ private ExecResult runGpAdminCommand(String containerName, String command) {
         )
     }
 }
+
+apply from: project.file("docs.nginx.gradle")

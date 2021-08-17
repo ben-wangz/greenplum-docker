@@ -2,6 +2,7 @@
 
 1. docker image: [dockerhub](https://hub.docker.com/r/wangz2019/greenplum-docker)
 2. source code: [github](https://github.com/ben-wangz/greenplum-docker)
+3. docs: [greenplum-docker-docs](https://ben-wangz.github.io/greenplum-docker/)
 
 ## what's it
 

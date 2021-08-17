@@ -34,6 +34,9 @@ RUN set -x \
 COPY sysctl.conf /etc/sysctl.conf
 COPY limits.conf /etc/security/limits.conf
 RUN set -x \
+    && cp /usr/local/greenplum-db/bin/gpload.py /usr/local/greenplum-db/bin/gpload.py.original \
+    && sed -i 's#import sys#import sys\nreload(sys)\nsys.setdefaultencoding("utf8")#g' /usr/local/greenplum-db/bin/gpload.py \
+    && sed -i 's#subprocess.Popen(cmd,#subprocess.Popen(cmd.encode("utf8"),#g' /usr/local/greenplum-db/bin/gpload.py \
     && groupadd gpadmin \
     && useradd  gpadmin -g gpadmin -d /home/gpadmin \
     && echo "gpadmin" | passwd --stdin gpadmin \

@@ -120,9 +120,32 @@ task initGpService(type: Exec) {
     )
 }
 
+task testWithGpload() {
+    doLast {
+        exec {
+            commandLine("docker", "cp", project.file("runtime"), "${containerName}:/home/gpadmin/runtime")
+        }
+        runGpAdminCommand(containerName, "createdb -h gpmaster -p 5432 mydatabase")
+        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/create.table.sql")
+        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/select.sql")
+        runGpAdminCommand(containerName, "gpload -f /home/gpadmin/runtime/gpload.test.table.yaml")
+        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/select.sql")
+    }
+}
+
 task stopDockerContainer(type: Exec) {
     executable("docker")
     args(
             "stop", containerName
     )
+}
+
+private ExecResult runGpAdminCommand(String containerName, String command) {
+    exec {
+        commandLine(
+                "docker",
+                "exec", "--user", "gpadmin", containerName,
+                "bash", "-c", "source /home/gpadmin/.bashrc && ${command}"
+        )
+    }
 }

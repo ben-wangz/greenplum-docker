@@ -1,0 +1,28 @@
+VERSION: 1.0.0.1
+DATABASE: mydatabase
+USER: gpadmin
+HOST: gpmaster
+PORT: 5432
+GPLOAD:
+  INPUT:
+    - SOURCE:
+        LOCAL_HOSTNAME:
+          - gpmaster
+        PORT_RANGE: [60000,61000]
+        FILE:
+          - /home/gpadmin/runtime/测试_table.csv
+    - COLUMNS:
+        - 'a': varchar
+        - 'b': int
+        - 'c': int
+    - FORMAT: csv
+    - DELIMITER: ','
+    - HEADER: true
+    - ERROR_LIMIT: 25
+  OUTPUT:
+    - TABLE: "test_table"
+    - MODE: INSERT
+    - MAPPING:
+        'name': 'a'
+        'value1': 'b'
+        'value2': 'c'

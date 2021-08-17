@@ -97,6 +97,7 @@ task runDockerContainer(type: Exec) {
     args(
             "run", "--rm",
             "-p", "1022:22",
+            "-p", "5432:5432",
             "--platform=linux/amd64",
             "--name", containerName,
             "--hostname", hostname,

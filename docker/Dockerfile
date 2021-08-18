@@ -1,4 +1,4 @@
-ARG CENTOS_SYSTEMD_TAG=1.0.0-centos7.9.2009-linux-amd64
+ARG CENTOS_SYSTEMD_TAG=1.1.0-centos7.9.2009-linux-amd64
 FROM wangz2019/centos-systemd:${CENTOS_SYSTEMD_TAG}
 
 COPY epel.repo /etc/yum.repos.d/epel.repo

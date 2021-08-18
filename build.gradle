@@ -24,7 +24,7 @@ def arch = "amd64"
 String imageWithTag = "${imageRepository}:${mainVersion}-${arch}"
 File runtimeDockerDirectory = project.file("${project.buildDir}/runtime/docker")
 task buildDockerImage(type: Exec) {
-    def centosSystemdTag = "1.0.0-centos7.9.2009-linux-amd64"
+    def centosSystemdTag = "1.1.0-centos7.9.2009-linux-amd64"
     doFirst {
         runtimeDockerDirectory.parentFile.mkdirs()
         runtimeDockerDirectory.delete()

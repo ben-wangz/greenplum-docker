@@ -1,0 +1,47 @@
+ARG CENTOS_SYSTEMD_TAG=1.1.0-centos7.9.2009-linux-amd64
+FROM wangz2019/centos-systemd:${CENTOS_SYSTEMD_TAG}
+
+COPY epel.repo /etc/yum.repos.d/epel.repo
+COPY greenplum-db-6.8.1-rhel7-x86_64.rpm /tmp/greenplum-db-6.8.1-rhel7-x86_64.rpm
+RUN set -x \
+    && yum -y install apr \
+        apr-util \
+        bash \
+        bzip2 \
+        curl \
+        krb5-libs \
+        libevent \
+        libxml2 \
+        libyaml \
+        zlib \
+        openldap \
+        openssh \
+        openssl \
+        openssl-libs \
+        perl \
+        readline \
+        rsync \
+        sed \
+        tar \
+        zip \
+        java-1.8.0-openjdk \
+        R \
+        openssh-clients \
+        /tmp/greenplum-db-6.8.1-rhel7-x86_64.rpm \
+    && yum -y clean all \
+    && rm -rf /var/cache \
+    && rm /tmp/greenplum-db-6.8.1-rhel7-x86_64.rpm
+COPY sysctl.conf /etc/sysctl.conf
+COPY limits.conf /etc/security/limits.conf
+RUN set -x \
+    && groupadd gpadmin \
+    && useradd  gpadmin -g gpadmin -d /home/gpadmin \
+    && echo "gpadmin" | passwd --stdin gpadmin \
+    && mkdir -p /opt/greenplum/data/primary \
+    && chown -R gpadmin:gpadmin /usr/local/greenplum* \
+    && chown -R gpadmin:gpadmin /opt/greenplum
+COPY slave_entry_point.sh /opt/greenplum/slave_entry_point.sh
+RUN set -x \
+    && chmod u+x /opt/greenplum/slave_entry_point.sh
+
+CMD ["/sbin/init"]

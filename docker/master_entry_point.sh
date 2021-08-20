@@ -8,6 +8,10 @@ if [ -z "${HOSTNAME}" ]; then
     echo "HOSTNAME not set!"
     exit -1
 fi
+if [ -z "${SLAVENAME}" ]; then
+    echo "SLAVENAME not set!"
+    exit -1
+fi
 mkdir -p /home/gpadmin/.ssh
 cat /opt/greenplum/ssh/id_rsa.pub > /home/gpadmin/.ssh/id_rsa.pub
 cat /opt/greenplum/ssh/id_rsa > /home/gpadmin/.ssh/id_rsa
@@ -16,6 +20,10 @@ chmod 600 /home/gpadmin/.ssh/id_rsa.pub
 chmod 600 /home/gpadmin/.ssh/id_rsa
 chmod 600 /home/gpadmin/.ssh/authorized_keys
 ssh-keyscan ${HOSTNAME} >> /home/gpadmin/.ssh/known_hosts
+for SLAVE in ${SLAVENAME}
+do
+    ssh-keyscan ${SLAVE} >> /home/gpadmin/.ssh/known_hosts
+done
 chmod 700 /home/gpadmin/.ssh
 chown -R gpadmin:gpadmin /home/gpadmin/.ssh
 
@@ -33,7 +41,15 @@ echo ARRAY_NAME="'${ARRAY_NAME:-Greenplum Data Platform}'" >> /opt/greenplum/gpi
 echo MASTER_HOSTNAME=${HOSTNAME} >> /opt/greenplum/gpinitsystem_config
 echo DATABASE_NAME=${DATABASE_NAME:-gpdb} >> /opt/greenplum/gpinitsystem_config
 echo ${HOSTNAME} > /opt/greenplum/hostfile_exkeys
+for SLAVE in ${SLAVENAME}
+do
+    echo ${SLAVE} >> /opt/greenplum/hostfile_exkeys
+done
 echo ${HOSTNAME} > /opt/greenplum/seg_hosts
+for SLAVE in ${SLAVENAME}
+do
+    echo ${SLAVE} >> /opt/greenplum/seg_hosts
+done
 chown gpadmin:gpadmin /opt/greenplum/gpinitsystem_config
 chown gpadmin:gpadmin /opt/greenplum/hostfile_exkeys
 chown gpadmin:gpadmin /opt/greenplum/seg_hosts

@@ -52,7 +52,7 @@ task buildDockerImage(type: Exec) {
             "build",
             "--platform", "linux/${arch}",
             "--rm", runtimeDockerDirectory,
-            "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/Dockerfile"),
+            "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/MasterDockerfile"),
             "-t", imageWithTag,
             "--build-arg", "CENTOS_SYSTEMD_TAG=${centosSystemdTag}",
     )
@@ -116,7 +116,7 @@ task initGpService(type: Exec) {
     executable("docker")
     args(
             "exec", containerName,
-            "/opt/greenplum/entry_point.sh",
+            "/opt/greenplum/master_entry_point.sh",
     )
 }
 
@@ -149,5 +149,6 @@ private ExecResult runGpAdminCommand(String containerName, String command) {
         )
     }
 }
+
 
 apply from: project.file("docs.nginx.gradle")

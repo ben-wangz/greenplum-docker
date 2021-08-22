@@ -52,7 +52,7 @@ task buildDockerImage(type: Exec) {
             "build",
             "--platform", "linux/${arch}",
             "--rm", runtimeDockerDirectory,
-            "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/MasterDockerfile"),
+            "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/Dockerfile"),
             "-t", imageWithTag,
             "--build-arg", "CENTOS_SYSTEMD_TAG=${centosSystemdTag}",
     )
@@ -87,8 +87,8 @@ task generateSshKey(type: Exec) {
 }
 
 def containerName = "greenplum"
-task runDockerContainer(type: Exec) {
-    def hostname = "gpmaster"
+def masterhostname = "gpmaster"
+task runMasterWithSlaveDockerContainer(type: Exec) {
     doFirst {
         keysDirectory.mkdirs()
         println("running command: ${String.join(" ", getCommandLine())}")
@@ -100,24 +100,134 @@ task runDockerContainer(type: Exec) {
             "-p", "5432:5432",
             "--platform=linux/amd64",
             "--name", containerName,
-            "--hostname", hostname,
+            "--hostname", masterhostname,
             "--privileged",
             "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
             "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-            "-e", "HOSTNAME=${hostname}",
-            "-d", imageWithTag,
+            "-e", "ROLE=MASTERWITHSLAVE",
+            "-e", "HOSTNAME=${masterhostname}",
+            "-d", imageWithTag
     )
     dependsOn(generateSshKey)
 }
-task initGpService(type: Exec) {
-    doFirst {
-        println("running command: ${String.join(" ", getCommandLine())}")
+
+task initMasterWithSlaveGpService() {
+    doLast {
+        exec {
+            commandLine(
+                    "docker",
+                    "exec", containerName,
+                    "/opt/greenplum/entry_point.sh"
+            )
+        }
     }
+}
+
+def subnet = "172.18.0.0/16"
+def netWorkName = "mynet"
+task createNetwork(type: Exec){
     executable("docker")
     args(
-            "exec", containerName,
-            "/opt/greenplum/master_entry_point.sh",
+            "network","create",
+            "--subnet",subnet,
+            netWorkName
     )
+}
+
+def masterIp = "172.18.0.22"
+def slave01ContainerName = "slave01"
+def slave01Ip = "172.18.0.23"
+def slave01hostname = "slave01"
+def slave02ContainerName = "slave02"
+def slave02Ip = "172.18.0.24"
+def slave02hostname = "slave02"
+task runClusterDockerContainer() {
+    doLast {
+        exec {
+            commandLine(
+                    "docker",
+                    "run", "--rm",
+                    "--net", netWorkName,
+                    "--ip", masterIp,
+                    "-p", "1022:22",
+                    "-p", "5432:5432",
+                    "--platform=linux/amd64",
+                    "--name", containerName,
+                    "--hostname", masterhostname,
+                    "--privileged",
+                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
+                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
+                    "-e", "ROLE=CLUSTER",
+                    "-e", "HOSTNAME=${masterhostname}",
+                    "-e", "SLAVENAME=${slave01hostname} ${slave02hostname}",
+                    "--add-host", slave01hostname + ":" + slave01Ip,
+                    "--add-host", slave02hostname + ":" + slave02Ip,
+                    "-d", imageWithTag
+            )
+        }
+        exec {
+            commandLine(
+                    "run", "--rm",
+                    "--net", netWorkName,
+                    "--ip", slave01Ip,
+                    "-p", "1023:22",
+                    "-p", "5433:5432",
+                    "--platform=linux/amd64",
+                    "--name", slave01ContainerName,
+                    "--hostname", slave01hostname,
+                    "--privileged",
+                    "-e", "ROLE=SLAVE",
+                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
+                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
+                    "-d", imageWithTag
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "run", "--rm",
+                    "--net", netWorkName,
+                    "--ip", slave02Ip,
+                    "-p", "1024:22",
+                    "-p", "5434:5432",
+                    "--platform=linux/amd64",
+                    "--name", slave02ContainerName,
+                    "--hostname", slave02hostname,
+                    "--privileged",
+                    "-e", "ROLE=SLAVE",
+                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
+                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
+                    "-d", imageWithTag
+            )
+        }
+    }
+    dependsOn(generateSshKey)
+}
+
+task initClusterGpService() {
+    doLast {
+        exec {
+            commandLine(
+                    "docker",
+                    "exec", containerName,
+                    "/opt/greenplum/entry_point.sh",
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "exec", slave01ContainerName,
+                    "/opt/greenplum/entry_point.sh",
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "exec", slave02ContainerName,
+                    "/opt/greenplum/entry_point.sh",
+            )
+        }
+    }
 }
 
 task testWithGpload() {
@@ -133,11 +243,34 @@ task testWithGpload() {
     }
 }
 
-task stopDockerContainer(type: Exec) {
+task stopMasterWithSlaveDockerContainer(type: Exec) {
     executable("docker")
     args(
             "stop", containerName
     )
+}
+
+task stopClusterDockerContainer() {
+    doLast {
+        exec {
+            commandLine(
+                    "docker",
+                    "stop",containerName
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "stop",slave01ContainerName
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "stop",slave02ContainerName
+            )
+        }
+    }
 }
 
 private ExecResult runGpAdminCommand(String containerName, String command) {
@@ -149,6 +282,5 @@ private ExecResult runGpAdminCommand(String containerName, String command) {
         )
     }
 }
-
 
 apply from: project.file("docs.nginx.gradle")

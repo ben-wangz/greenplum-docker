@@ -39,15 +39,14 @@ RUN set -x \
     && sed -i 's#subprocess.Popen(cmd,#subprocess.Popen(cmd.encode("utf8"),#g' /usr/local/greenplum-db/bin/gpload.py \
     && groupadd gpadmin \
     && useradd  gpadmin -g gpadmin -d /home/gpadmin \
-    && echo "gpadmin" | passwd --stdin gpadmin \
     && mkdir -p /opt/greenplum/data/master \
     && mkdir -p /opt/greenplum/data/primary \
     && chown -R gpadmin:gpadmin /usr/local/greenplum* \
     && chown -R gpadmin:gpadmin /opt/greenplum
-COPY master_entry_point.sh /opt/greenplum/master_entry_point.sh
+COPY entry_point.sh /opt/greenplum/entry_point.sh
 COPY init_gp_service.sh /opt/greenplum/init_gp_service.sh
 RUN set -x \
-    && chmod u+x /opt/greenplum/master_entry_point.sh \
+    && chmod u+x /opt/greenplum/entry_point.sh \
     && chmod a+x /opt/greenplum/init_gp_service.sh
 
 CMD ["/sbin/init"]

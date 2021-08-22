@@ -36,7 +36,6 @@ COPY limits.conf /etc/security/limits.conf
 RUN set -x \
     && groupadd gpadmin \
     && useradd  gpadmin -g gpadmin -d /home/gpadmin \
-    && echo "gpadmin" | passwd --stdin gpadmin \
     && mkdir -p /opt/greenplum/data/primary \
     && chown -R gpadmin:gpadmin /usr/local/greenplum* \
     && chown -R gpadmin:gpadmin /opt/greenplum

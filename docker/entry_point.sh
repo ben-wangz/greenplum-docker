@@ -23,34 +23,37 @@ nodeInit(){
 
 masterInit(){
   ssh-keyscan ${HOSTNAME} >> /home/gpadmin/.ssh/known_hosts
+
   cat > /opt/greenplum/gpinitsystem_config <<EOF
-  SEG_PREFIX=gpseg
-  PORT_BASE=6000
-  declare -a DATA_DIRECTORY=(/opt/greenplum/data/primary)
-  MASTER_DIRECTORY=/opt/greenplum/data/master
-  MASTER_PORT=5432
-  TRUSTED_SHELL=ssh
-  CHECK_POINT_SEGMENTS=8
-  ENCODING=UTF8
+SEG_PREFIX=gpseg
+PORT_BASE=6000
+declare -a DATA_DIRECTORY=(/opt/greenplum/data/primary)
+MASTER_DIRECTORY=/opt/greenplum/data/master
+MASTER_PORT=5432
+TRUSTED_SHELL=ssh
+CHECK_POINT_SEGMENTS=8
+ENCODING=UTF8
 EOF
+
   echo ARRAY_NAME="'${ARRAY_NAME:-Greenplum Data Platform}'" >> /opt/greenplum/gpinitsystem_config
   echo MASTER_HOSTNAME=${HOSTNAME} >> /opt/greenplum/gpinitsystem_config
   echo DATABASE_NAME=${DATABASE_NAME:-gpdb} >> /opt/greenplum/gpinitsystem_config
-  echo ${HOSTNAME} > /opt/greenplum/hostfile_exkeys
-  echo ${HOSTNAME} > /opt/greenplum/seg_hosts
+  echo ${HOSTNAME} >> /opt/greenplum/hostfile_exkeys
+  echo ${HOSTNAME} >> /opt/greenplum/seg_hosts
   chown gpadmin:gpadmin /opt/greenplum/gpinitsystem_config
   chown gpadmin:gpadmin /opt/greenplum/hostfile_exkeys
   chown gpadmin:gpadmin /opt/greenplum/seg_hosts
 
   cat > /home/gpadmin/.bashrc <<EOF
-  if [ -f /etc/bashrc ]; then
-	  . /etc/bashrc
-  fi
-  source /usr/local/greenplum-db-6.8.1/greenplum_path.sh
-  export MASTER_DATA_DIRECTORY=/opt/greenplum/data/master/gpseg-1
-  export PGPORT=5432
-  export PGUSER=gpadmin
+if [ -f /etc/bashrc ]; then
+  . /etc/bashrc
+fi
+source /usr/local/greenplum-db-6.8.1/greenplum_path.sh
+export MASTER_DATA_DIRECTORY=/opt/greenplum/data/master/gpseg-1
+export PGPORT=5432
+export PGUSER=gpadmin
 EOF
+
   echo PGDATABASE=${DATABASE_NAME:-gpdb} >> /home/gpadmin/.bashrc
   chown gpadmin:gpadmin /home/gpadmin/.bashrc
 
@@ -88,7 +91,7 @@ if [ "${ROLE}" = "MASTERWITHSLAVE" ];then
   fi
   masterInit
 elif [ "${ROLE}" = "CLUSTER" ];then
-  if [ -z "${HOSTNAME}" ] && [ -z "${SLAVENAME}" ];then
+  if [ -z "${HOSTNAME}" ];then
     echo "HOSTNAME should be set"
     exit -1
   fi

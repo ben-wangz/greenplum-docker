@@ -36,24 +36,41 @@
         + mac & arm64 (not work)
     * jdk 8 or higher to run gradle scripts
     * docker to build/run greenplum
-2. start service
+2. start master with slave service
     * build docker image
         + optional
         + ```shell
           ./gradlew :buildDockerImage
           ```
-    * run docker container
+    * run master with slave docker container
         + ```shell
-          ./gradlew :runDockerContainer
+          ./gradlew :runMasterWithSlaveDockerContainer
           ```
         + ssh service will be exposed with port 1022
         + greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
-    * init greenplum service
+    * init master with cluster service
         + ```shell
-          ./gradlew :initGpService
+          ./gradlew :initMasterWithSlaveGpService
           ```
         + idempotent operation
-3. test service
+3. start cluster service
+    * build docker image
+        + optional
+        + ```shell
+          ./gradlew :buildDockerImage
+          ```
+    * run cluster docker container
+        + ```shell
+          ./gradlew :runMasterWithSlaveDockerContainer
+          ```
+        + ssh service will be exposed with port 1022
+        + greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
+    * init cluster service
+        + ```shell
+          ./gradlew :initMasterWithSlaveGpService
+          ```
+        + idempotent operation
+4. test service
     * ```shell
       ./gradlew :testWithGpload
       ```
@@ -63,10 +80,14 @@
         3. load some data into `mydatabase.test_table` with `gpload`
         4. select data from `mydatabase.test_table` before and after loading
         5. (TODO) check data
-4. stop service
+5. stop service
     * ```shell
-      ./gradlew :stopDockerContainer
+      ./gradlew :stopMasterWithSlaveDockerContainer
       ```
+    * ```shell
+      ./gradlew :stopClusterDockerContainer
+      ```
+      
 5. you can also jump into the container
     * ```shell
       docker exec --user gpadmin -it greenplum bash

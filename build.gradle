@@ -167,6 +167,7 @@ task runClusterDockerContainer() {
         }
         exec {
             commandLine(
+                    "docker",
                     "run", "--rm",
                     "--net", netWorkName,
                     "--ip", slave01Ip,
@@ -209,13 +210,6 @@ task initClusterGpService() {
         exec {
             commandLine(
                     "docker",
-                    "exec", containerName,
-                    "/opt/greenplum/entry_point.sh",
-            )
-        }
-        exec {
-            commandLine(
-                    "docker",
                     "exec", slave01ContainerName,
                     "/opt/greenplum/entry_point.sh",
             )
@@ -224,6 +218,13 @@ task initClusterGpService() {
             commandLine(
                     "docker",
                     "exec", slave02ContainerName,
+                    "/opt/greenplum/entry_point.sh",
+            )
+        }
+        exec {
+            commandLine(
+                    "docker",
+                    "exec", containerName,
                     "/opt/greenplum/entry_point.sh",
             )
         }

@@ -24,7 +24,7 @@ nodeInit(){
 masterInit(){
   ssh-keyscan ${HOSTNAME} >> /home/gpadmin/.ssh/known_hosts
 
-  cat > /opt/greenplum/gpinitsystem_config <<EOF
+cat > /opt/greenplum/gpinitsystem_config <<EOF
 SEG_PREFIX=gpseg
 PORT_BASE=6000
 declare -a DATA_DIRECTORY=(/opt/greenplum/data/primary)
@@ -44,7 +44,7 @@ EOF
   chown gpadmin:gpadmin /opt/greenplum/hostfile_exkeys
   chown gpadmin:gpadmin /opt/greenplum/seg_hosts
 
-  cat > /home/gpadmin/.bashrc <<EOF
+cat > /home/gpadmin/.bashrc <<EOF
 if [ -f /etc/bashrc ]; then
   . /etc/bashrc
 fi

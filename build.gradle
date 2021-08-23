@@ -86,8 +86,20 @@ task generateSshKey(type: Exec) {
     )
 }
 
+def subnet = "172.18.0.0/16"
+def netWorkName = "mynet"
+task createNetwork(type: Exec){
+    executable("docker")
+    args(
+            "network","create",
+            "--subnet",subnet,
+            netWorkName
+    )
+}
+
 def containerName = "greenplum"
 def masterhostname = "gpmaster"
+def masterIp = "172.18.0.22"
 task runMasterWithSlaveDockerContainer(type: Exec) {
     doFirst {
         keysDirectory.mkdirs()
@@ -96,6 +108,8 @@ task runMasterWithSlaveDockerContainer(type: Exec) {
     executable("docker")
     args(
             "run", "--rm",
+            "--net", netWorkName,
+            "--ip", masterIp,
             "-p", "1022:22",
             "-p", "5432:5432",
             "--platform=linux/amd64",
@@ -123,18 +137,6 @@ task initMasterWithSlaveGpService() {
     }
 }
 
-def subnet = "172.18.0.0/16"
-def netWorkName = "mynet"
-task createNetwork(type: Exec){
-    executable("docker")
-    args(
-            "network","create",
-            "--subnet",subnet,
-            netWorkName
-    )
-}
-
-def masterIp = "172.18.0.22"
 def slave01ContainerName = "slave01"
 def slave01Ip = "172.18.0.23"
 def slave01hostname = "slave01"
@@ -231,17 +233,28 @@ task initClusterGpService() {
     }
 }
 
-task testWithGpload() {
-    doLast {
-        exec {
-            commandLine("docker", "cp", project.file("runtime"), "${containerName}:/home/gpadmin/runtime")
-        }
-        runGpAdminCommand(containerName, "createdb -h gpmaster -p 5432 mydatabase")
-        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/create.table.sql")
-        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/select.sql")
-        runGpAdminCommand(containerName, "gpload -f /home/gpadmin/runtime/gpload.test.table.yaml")
-        runGpAdminCommand(containerName, "psql mydatabase -f /home/gpadmin/runtime/select.sql")
+def testIp = "172.18.0.25"
+def testHostName = "test"
+def testContainerName = "test"
+task testWithGpload(type:Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
     }
+    executable("docker")
+    args(
+            "run", "--rm",
+            "--net", netWorkName,
+            "--ip", testIp,
+            "-p", "1025:22",
+            "-p", "5435:5432",
+            "--platform=linux/amd64",
+            "--name", testContainerName,
+            "--hostname", testHostName,
+            "--privileged",
+            "-v", "${project.file("runtime")}/test.sh:/opt/greenplum/entry_point.sh",
+            imageWithTag,
+            "/bin/bash","/opt/greenplum/entry_point.sh"
+    )
 }
 
 task stopMasterWithSlaveDockerContainer(type: Exec) {
@@ -274,14 +287,5 @@ task stopClusterDockerContainer() {
     }
 }
 
-private ExecResult runGpAdminCommand(String containerName, String command) {
-    exec {
-        commandLine(
-                "docker",
-                "exec", "--user", "gpadmin", containerName,
-                "bash", "-c", "source /home/gpadmin/.bashrc && ${command}"
-        )
-    }
-}
 
 apply from: project.file("docs.nginx.gradle")

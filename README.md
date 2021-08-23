@@ -36,12 +36,18 @@
         + mac & arm64 (not work)
     * jdk 8 or higher to run gradle scripts
     * docker to build/run greenplum
-2. start master with slave service
+2. prepares
     * build docker image
         + optional
         + ```shell
           ./gradlew :buildDockerImage
           ```
+    * create network
+        + optional
+        + ```shell
+          ./gradlew :createNetwork
+          ```
+2. start service
     * run master with slave docker container
         + ```shell
           ./gradlew :runMasterWithSlaveDockerContainer
@@ -53,13 +59,7 @@
           ./gradlew :initMasterWithSlaveGpService
           ```
         + idempotent operation
-3. start cluster service
-    * build docker image
-        + optional
-        + ```shell
-          ./gradlew :buildDockerImage
-          ```
-    * run cluster docker container
+    * run cluster docker container (stop master with slave docker first)
         + ```shell
           ./gradlew :runMasterWithSlaveDockerContainer
           ```

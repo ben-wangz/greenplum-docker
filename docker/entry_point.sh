@@ -46,7 +46,7 @@ EOF
 
 cat > /home/gpadmin/.bashrc <<EOF
 if [ -f /etc/bashrc ]; then
-  . /etc/bashrc
+    . /etc/bashrc
 fi
 source /usr/local/greenplum-db-6.8.1/greenplum_path.sh
 export MASTER_DATA_DIRECTORY=/opt/greenplum/data/master/gpseg-1

@@ -36,7 +36,7 @@
         + mac & arm64 (not work)
     * jdk 8 or higher to run gradle scripts
     * docker to build/run greenplum
-2. prepares
+2. prepare
     * build docker image
         + optional
         + ```shell
@@ -47,7 +47,7 @@
         + ```shell
           ./gradlew :createNetwork
           ```
-2. start service
+3. start service
     * run master with slave docker container
         + ```shell
           ./gradlew :runMasterWithSlaveDockerContainer
@@ -61,13 +61,13 @@
         + idempotent operation
     * run cluster docker container (stop master with slave docker first)
         + ```shell
-          ./gradlew :runMasterWithSlaveDockerContainer
+          ./gradlew :runClusterDockerContainer
           ```
         + ssh service will be exposed with port 1022
         + greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
     * init cluster service
         + ```shell
-          ./gradlew :initMasterWithSlaveGpService
+          ./gradlew :initClusterGpService
           ```
         + idempotent operation
 4. test service

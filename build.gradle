@@ -88,6 +88,7 @@ task generateSshKey(type: Exec) {
 
 def subnet = "172.18.0.0/16"
 def netWorkName = "mynet"
+
 task createNetwork(type: Exec){
     executable("docker")
     args(
@@ -127,109 +128,112 @@ task runMasterWithSlaveDockerContainer(type: Exec) {
 
 task initMasterWithSlaveGpService() {
     doLast {
-        exec {
-            commandLine(
-                    "docker",
-                    "exec", containerName,
-                    "/opt/greenplum/entry_point.sh"
-            )
-        }
+        runInitDockerCommand(containerName)
     }
 }
 
-def slave01ContainerName = "slave01"
-def slave01Ip = "172.18.0.23"
-def slave01hostname = "slave01"
-def slave02ContainerName = "slave02"
-def slave02Ip = "172.18.0.24"
-def slave02hostname = "slave02"
+List<Map<String, String>> slaveNodes = Arrays.asList(
+        new HashMap<String, String>(){{
+            put("netWorkName", netWorkName)
+            put("slaveIp", "172.18.0.23")
+            put("slaveContainerName", "slave01")
+            put("slaveHostName", "slave01")
+            put("slaveSshPort", "1023")
+            put("slaveGpPort", "5433")
+            put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
+            put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
+            put("imageWithTag", imageWithTag)
+        }},
+        new HashMap<String, String>(){{
+            put("netWorkName", netWorkName)
+            put("slaveIp", "172.18.0.24")
+            put("slaveContainerName", "slave02")
+            put("slaveHostName", "slave02")
+            put("slaveSshPort", "1024")
+            put("slaveGpPort", "5434")
+            put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
+            put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
+            put("imageWithTag", imageWithTag)
+        }})
 task runClusterDockerContainer() {
     doLast {
+        List<String> command = new ArrayList<>(Arrays.asList(
+                "docker",
+                "run", "--rm",
+                "--net", netWorkName,
+                "--ip", masterIp,
+                "-p", "1022:22",
+                "-p", "5432:5432",
+                "--platform=linux/amd64",
+                "--name", containerName,
+                "--hostname", masterhostname,
+                "--privileged",
+                "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
+                "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
+                "-e", "ROLE=CLUSTER",
+                "-e", "HOSTNAME=${masterhostname}",
+                "-e"
+        ))
+        String slaveName = "SLAVENAME="
+        for(Map<String, String> slaveNode : slaveNodes){
+            slaveName += slaveNode.get("slaveHostName")+" ";
+        }
+        command.add(slaveName);
+        for(Map<String, String> slaveNode : slaveNodes){
+            command.add("--add-host")
+            command.add(slaveNode.get("slaveHostName") + ":" + slaveNode.get("slaveIp"));
+        }
+        command.add("-d");
+        command.add(imageWithTag);
         exec {
             commandLine(
-                    "docker",
-                    "run", "--rm",
-                    "--net", netWorkName,
-                    "--ip", masterIp,
-                    "-p", "1022:22",
-                    "-p", "5432:5432",
-                    "--platform=linux/amd64",
-                    "--name", containerName,
-                    "--hostname", masterhostname,
-                    "--privileged",
-                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
-                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-                    "-e", "ROLE=CLUSTER",
-                    "-e", "HOSTNAME=${masterhostname}",
-                    "-e", "SLAVENAME=${slave01hostname} ${slave02hostname}",
-                    "--add-host", slave01hostname + ":" + slave01Ip,
-                    "--add-host", slave02hostname + ":" + slave02Ip,
-                    "-d", imageWithTag
+                   command
             )
         }
-        exec {
-            commandLine(
-                    "docker",
-                    "run", "--rm",
-                    "--net", netWorkName,
-                    "--ip", slave01Ip,
-                    "-p", "1023:22",
-                    "-p", "5433:5432",
-                    "--platform=linux/amd64",
-                    "--name", slave01ContainerName,
-                    "--hostname", slave01hostname,
-                    "--privileged",
-                    "-e", "ROLE=SLAVE",
-                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
-                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-                    "-d", imageWithTag
-            )
-        }
-        exec {
-            commandLine(
-                    "docker",
-                    "run", "--rm",
-                    "--net", netWorkName,
-                    "--ip", slave02Ip,
-                    "-p", "1024:22",
-                    "-p", "5434:5432",
-                    "--platform=linux/amd64",
-                    "--name", slave02ContainerName,
-                    "--hostname", slave02hostname,
-                    "--privileged",
-                    "-e", "ROLE=SLAVE",
-                    "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
-                    "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-                    "-d", imageWithTag
-            )
+        for(Map<String, String> slaveNode : slaveNodes){
+            runCreateSlaveDockerCommand(slaveNode)
         }
     }
     dependsOn(generateSshKey)
 }
 
+private ExecResult runCreateSlaveDockerCommand(Map<String, String> slaveNode){
+    exec {
+        commandLine(
+                "docker",
+                "run", "--rm",
+                "--net", slaveNode.get("netWorkName"),
+                "--ip", slaveNode.get("slaveIp"),
+                "-p", slaveNode.get("slaveSshPort") + ":22",
+                "-p", slaveNode.get("slaveGpPort") + ":5432",
+                "--platform=linux/amd64",
+                "--name", slaveNode.get("slaveContainerName"),
+                "--hostname", slaveNode.get("slaveHostName"),
+                "--privileged",
+                "-e", "ROLE=SLAVE",
+                "-v", slaveNode.get("rsa_pub"),
+                "-v", slaveNode.get("rsa"),
+                "-d", slaveNode.get("imageWithTag")
+        )
+    }
+}
+
 task initClusterGpService() {
     doLast {
-        exec {
-            commandLine(
-                    "docker",
-                    "exec", slave01ContainerName,
-                    "/opt/greenplum/entry_point.sh",
-            )
+        for(Map<String, String> slaveNode : slaveNodes){
+            runInitDockerCommand(slaveNode.get("slaveContainerName"))
         }
-        exec {
-            commandLine(
-                    "docker",
-                    "exec", slave02ContainerName,
-                    "/opt/greenplum/entry_point.sh",
-            )
-        }
-        exec {
-            commandLine(
-                    "docker",
-                    "exec", containerName,
-                    "/opt/greenplum/entry_point.sh",
-            )
-        }
+        runInitDockerCommand(containerName)
+    }
+}
+
+private ExecResult runInitDockerCommand(String containerName){
+    exec {
+        commandLine(
+                "docker",
+                "exec", containerName,
+                "/opt/greenplum/entry_point.sh",
+        )
     }
 }
 
@@ -257,35 +261,28 @@ task testWithGpload(type:Exec) {
     )
 }
 
-task stopMasterWithSlaveDockerContainer(type: Exec) {
-    executable("docker")
-    args(
-            "stop", containerName
-    )
+task stopMasterWithSlaveDockerContainer() {
+    doLast {
+        runStopDockerCommand(containerName)
+    }
 }
 
 task stopClusterDockerContainer() {
     doLast {
-        exec {
-            commandLine(
-                    "docker",
-                    "stop",containerName
-            )
-        }
-        exec {
-            commandLine(
-                    "docker",
-                    "stop",slave01ContainerName
-            )
-        }
-        exec {
-            commandLine(
-                    "docker",
-                    "stop",slave02ContainerName
-            )
+        runStopDockerCommand(containerName)
+        for(Map<String, String> slaveNode : slaveNodes){
+            runStopDockerCommand(slaveNode.get("slaveContainerName"))
         }
     }
 }
 
+private ExecResult runStopDockerCommand(String containerName){
+    exec {
+        commandLine(
+                "docker",
+                "stop",containerName
+        )
+    }
+}
 
 apply from: project.file("docs.nginx.gradle")

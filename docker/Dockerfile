@@ -1,6 +1,8 @@
 ARG CENTOS_SYSTEMD_TAG=1.3.0-centos7.9.2009
 FROM wangz2019/docker-systemd:${CENTOS_SYSTEMD_TAG}
 
+RUN rm -rf /etc/yum.repos.d/*
+COPY centos.7.base.repo /etc/yum.repos.d/centos.7.base.repo
 COPY epel.repo /etc/yum.repos.d/epel.repo
 COPY greenplum-db-6.8.1-rhel7-x86_64.rpm /tmp/greenplum-db-6.8.1-rhel7-x86_64.rpm
 RUN set -x \

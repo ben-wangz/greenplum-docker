@@ -1,3 +1,5 @@
+import java.util.concurrent.TimeUnit
+
 buildscript {
     repositories {
         maven { url("https://maven.aliyun.com/repository/public") }
@@ -15,13 +17,12 @@ plugins {
 
 def mainVersion = "1.0.0"
 Map<String, String> envMap = new HashMap<>(System.getenv())
-def imageRepository = envMap.getOrDefault("IMAGE_REPOSITORY ", "wangz2019/greenplum-docker")
+def imageRepository = envMap.getOrDefault("IMAGE_REPOSITORY", "wangz2019/greenplum-docker")
 def greenplumPackageUrl = envMap.getOrDefault(
         "GREEN_PLUM_PACKAGE_URL",
         "https://github.com/greenplum-db/gpdb/releases/download/6.8.1/greenplum-db-6.8.1-rhel7-x86_64.rpm"
 )
-def arch = "amd64"
-String imageWithTag = "${imageRepository}:${mainVersion}-${arch}"
+String imageWithTag = "${imageRepository}:${mainVersion}"
 File runtimeDockerDirectory = project.file("${project.buildDir}/runtime/docker")
 task buildDockerImage(type: Exec) {
     def centosSystemdTag = "1.3.0-centos7.9.2009"
@@ -50,26 +51,19 @@ task buildDockerImage(type: Exec) {
     args(
             "buildx",
             "build",
-            "--platform", "linux/${arch}",
+            "--platform", "linux/amd64",
             "--rm", runtimeDockerDirectory,
             "-f", project.file("${runtimeDockerDirectory.getAbsolutePath()}/Dockerfile"),
             "-t", imageWithTag,
             "--build-arg", "CENTOS_SYSTEMD_TAG=${centosSystemdTag}",
+            "--push",
     )
 }
-
-task pushDockerImage(type: Exec) {
-    executable("docker")
-    args(
-            "push", imageWithTag,
-    )
-    dependsOn(buildDockerImage)
-}
-
 def keysDirectory = project.file("${project.buildDir}/runtime/keys")
+def privateKeyFile = project.file("${keysDirectory}/id_rsa")
+def publicKeyFile = project.file("${keysDirectory}/id_rsa.pub")
 task generateSshKey(type: Exec) {
-    if (project.file("${keysDirectory}/id_rsa").exists()
-            && project.file("${keysDirectory}/id_rsa.pub").exists()) {
+    if (privateKeyFile.exists() && publicKeyFile.exists()) {
         println("skip ${name} as files exists")
         enabled(false)
     }
@@ -85,15 +79,74 @@ task generateSshKey(type: Exec) {
             "-f", "${keysDirectory}/id_rsa"
     )
 }
+def singleton = [
+        containerName: "greenplum-singleton",
+        hostname     : "gpmaster",
+        sshPort      : "1022",
+        databasePort : "5432",
+]
+task runSingleNode(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "run", "--rm",
+            "-p", "${singleton.sshPort}:22",
+            "-p", "${singleton.databasePort}:5432",
+            "--platform=linux/amd64",
+            "--name", singleton.containerName,
+            "--hostname", singleton.hostname,
+            "--privileged",
+            "-v", "${publicKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa.pub:ro",
+            "-v", "${privateKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa:ro",
+            // TODO change value
+            "-e", "ROLE=MASTERWITHSLAVE",
+            "-e", "MASTER_HOSTNAME=${singleton.hostname}",
+            "-d", imageWithTag
+    )
+    dependsOn(generateSshKey)
+    doLast {
+        // TODO wait for ssh service to be ready: checking it
+        TimeUnit.SECONDS.sleep(30)
+        exec {
+            commandLine("docker", "exec", "-i", singleton.containerName, "/opt/greenplum/entry_point.sh")
+        }
+    }
+}
+task stopSingleNode(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "kill", singleton.containerName,
+    )
+}
+
+task testGreenPlumService(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "run", "--rm",
+            "--platform=linux/amd64",
+            // TODO rename test.sh
+            "-v", "${project.file("runtime")}/test.sh:/tmp/test.sh",
+            imageWithTag,
+            "/bin/bash", "/tmp/test.sh"
+    )
+}
 
 def subnet = "172.18.0.0/16"
 def netWorkName = "mynet"
 
-task createNetwork(type: Exec){
+task createNetwork(type: Exec) {
     executable("docker")
     args(
-            "network","create",
-            "--subnet",subnet,
+            "network", "create",
+            "--subnet", subnet,
             netWorkName
     )
 }
@@ -120,7 +173,7 @@ task runMasterWithSlaveDockerContainer(type: Exec) {
             "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
             "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
             "-e", "ROLE=MASTERWITHSLAVE",
-            "-e", "HOSTNAME=${masterhostname}",
+            "-e", "MASTER_HOSTNAME=${masterhostname}",
             "-d", imageWithTag
     )
     dependsOn(generateSshKey)
@@ -133,28 +186,32 @@ task initMasterWithSlaveGpService() {
 }
 
 List<Map<String, String>> slaveNodes = Arrays.asList(
-        new HashMap<String, String>(){{
-            put("netWorkName", netWorkName)
-            put("slaveIp", "172.18.0.23")
-            put("slaveContainerName", "slave01")
-            put("slaveHostName", "slave01")
-            put("slaveSshPort", "1023")
-            put("slaveGpPort", "5433")
-            put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
-            put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
-            put("imageWithTag", imageWithTag)
-        }},
-        new HashMap<String, String>(){{
-            put("netWorkName", netWorkName)
-            put("slaveIp", "172.18.0.24")
-            put("slaveContainerName", "slave02")
-            put("slaveHostName", "slave02")
-            put("slaveSshPort", "1024")
-            put("slaveGpPort", "5434")
-            put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
-            put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
-            put("imageWithTag", imageWithTag)
-        }})
+        new HashMap<String, String>() {
+            {
+                put("netWorkName", netWorkName)
+                put("slaveIp", "172.18.0.23")
+                put("slaveContainerName", "slave01")
+                put("slaveHostName", "slave01")
+                put("slaveSshPort", "1023")
+                put("slaveGpPort", "5433")
+                put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
+                put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
+                put("imageWithTag", imageWithTag)
+            }
+        },
+        new HashMap<String, String>() {
+            {
+                put("netWorkName", netWorkName)
+                put("slaveIp", "172.18.0.24")
+                put("slaveContainerName", "slave02")
+                put("slaveHostName", "slave02")
+                put("slaveSshPort", "1024")
+                put("slaveGpPort", "5434")
+                put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
+                put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
+                put("imageWithTag", imageWithTag)
+            }
+        })
 task runClusterDockerContainer() {
     doLast {
         List<String> command = new ArrayList<>(Arrays.asList(
@@ -174,12 +231,12 @@ task runClusterDockerContainer() {
                 "-e", "HOSTNAME=${masterhostname}",
                 "-e"
         ))
-        String slaveName = "SLAVENAME="
-        for(Map<String, String> slaveNode : slaveNodes){
-            slaveName += slaveNode.get("slaveHostName")+" ";
+        String slaveName = "SLAVE_HOSTNAME_LIST="
+        for (Map<String, String> slaveNode : slaveNodes) {
+            slaveName += slaveNode.get("slaveHostName") + " ";
         }
         command.add(slaveName);
-        for(Map<String, String> slaveNode : slaveNodes){
+        for (Map<String, String> slaveNode : slaveNodes) {
             command.add("--add-host")
             command.add(slaveNode.get("slaveHostName") + ":" + slaveNode.get("slaveIp"));
         }
@@ -187,17 +244,17 @@ task runClusterDockerContainer() {
         command.add(imageWithTag);
         exec {
             commandLine(
-                   command
+                    command
             )
         }
-        for(Map<String, String> slaveNode : slaveNodes){
+        for (Map<String, String> slaveNode : slaveNodes) {
             runCreateSlaveDockerCommand(slaveNode)
         }
     }
     dependsOn(generateSshKey)
 }
 
-private ExecResult runCreateSlaveDockerCommand(Map<String, String> slaveNode){
+private ExecResult runCreateSlaveDockerCommand(Map<String, String> slaveNode) {
     exec {
         commandLine(
                 "docker",
@@ -220,14 +277,14 @@ private ExecResult runCreateSlaveDockerCommand(Map<String, String> slaveNode){
 
 task initClusterGpService() {
     doLast {
-        for(Map<String, String> slaveNode : slaveNodes){
+        for (Map<String, String> slaveNode : slaveNodes) {
             runInitDockerCommand(slaveNode.get("slaveContainerName"))
         }
         runInitDockerCommand(containerName)
     }
 }
 
-private ExecResult runInitDockerCommand(String containerName){
+private ExecResult runInitDockerCommand(String containerName) {
     exec {
         commandLine(
                 "docker",
@@ -240,7 +297,7 @@ private ExecResult runInitDockerCommand(String containerName){
 def testIp = "172.18.0.25"
 def testHostName = "test"
 def testContainerName = "test"
-task testWithGpload(type:Exec) {
+task testWithGpload(type: Exec) {
     doFirst {
         println("running command: ${String.join(" ", getCommandLine())}")
     }
@@ -255,9 +312,10 @@ task testWithGpload(type:Exec) {
             "--name", testContainerName,
             "--hostname", testHostName,
             "--privileged",
+            // TODO rename test.sh
             "-v", "${project.file("runtime")}/test.sh:/opt/greenplum/entry_point.sh",
             imageWithTag,
-            "/bin/bash","/opt/greenplum/entry_point.sh"
+            "/bin/bash", "/opt/greenplum/entry_point.sh"
     )
 }
 
@@ -270,17 +328,17 @@ task stopMasterWithSlaveDockerContainer() {
 task stopClusterDockerContainer() {
     doLast {
         runStopDockerCommand(containerName)
-        for(Map<String, String> slaveNode : slaveNodes){
+        for (Map<String, String> slaveNode : slaveNodes) {
             runStopDockerCommand(slaveNode.get("slaveContainerName"))
         }
     }
 }
 
-private ExecResult runStopDockerCommand(String containerName){
+private ExecResult runStopDockerCommand(String containerName) {
     exec {
         commandLine(
                 "docker",
-                "stop",containerName
+                "stop", containerName
         )
     }
 }

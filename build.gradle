@@ -14,6 +14,9 @@ buildscript {
 plugins {
     id "de.undercouch.download" version "4.1.1"
 }
+ext {
+    dockerHostInternal = "host.docker.internal"
+}
 
 def mainVersion = "1.0.0"
 Map<String, String> envMap = new HashMap<>(System.getenv())
@@ -97,6 +100,7 @@ task runSingleNode(type: Exec) {
             "--platform=linux/amd64",
             "--name", singleton.containerName,
             "--hostname", singleton.hostname,
+            "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
             "--privileged",
             "-v", "${publicKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa.pub:ro",
             "-v", "${privateKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa:ro",
@@ -124,19 +128,40 @@ task stopSingleNode(type: Exec) {
     )
 }
 
-task testGreenPlumService(type: Exec) {
-    doFirst {
-        println("running command: ${String.join(" ", getCommandLine())}")
+task testSingleNodeGreenPlumService() {
+    doLast {
+        testGreenPlumService(
+                imageWithTag,
+                "${project.ext.dockerHostInternal}", singleton.databasePort,
+                "gpadmin", "gparray",
+                60000,
+        )
     }
-    executable("docker")
-    args(
-            "run", "--rm",
-            "--platform=linux/amd64",
-            // TODO rename test.sh
-            "-v", "${project.file("runtime")}/test.sh:/tmp/test.sh",
-            imageWithTag,
-            "/bin/bash", "/tmp/test.sh"
-    )
+}
+
+private void testGreenPlumService(
+        String imageWithTag,
+        String host, String port,
+        String username, String password,
+        int gpLoadPort
+) {
+    exec {
+        executable("docker")
+        args(
+                "run", "--rm",
+                "--platform=linux/amd64",
+                "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
+                "-e", "GP_HOST=${host}",
+                "-e", "GP_PORT=${port}",
+                "-e", "GP_USER=${username}",
+                "-e", "GP_PASSWORD=${password}",
+                "-e", "GP_LOAD_PORT=${gpLoadPort}",
+                "-p", "${gpLoadPort}:${gpLoadPort}",
+                "-v", "${project.file("runtime")}/test.sh:/tmp/test.sh",
+                imageWithTag,
+                "/bin/bash", "/tmp/test.sh"
+        )
+    }
 }
 
 def subnet = "172.18.0.0/16"

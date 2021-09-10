@@ -61,7 +61,7 @@
     * greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
 2. test service
     * ```shell
-      ./gradlew :testGreenPlumService
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testSingleNodeGreenPlumService
       ```
     * what does test do?
         1. create a database named `mydatabase`
@@ -73,11 +73,6 @@
     * ```shell
       ./gradlew :stopSingleNode
       ```
-4. you can also jump into the container
-    * ```shell
-      docker exec --user gpadmin -it greenplum bash
-      ```
-
 ---
 
 ### cluster

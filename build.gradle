@@ -117,9 +117,9 @@ task stopSingleton(type: Exec) {
     )
 }
 
-task testSingletonGreenPlumService() {
+task testSingleton() {
     doLast {
-        testGreenPlumService(
+        testGreenPlumLoad(
                 imageWithTag,
                 "${project.ext.dockerHostInternal}", singleton.databasePort,
                 "gpadmin", "gparray",
@@ -132,8 +132,8 @@ def cluster = [
         dockerNetworkName       : "greenplum-cluster-network",
         masterContainerName     : "greenplum-master",
         masterHostname          : "gpmaster",
-        masterSshPort           : 1022,
-        masterDatabasePort      : 5432,
+        masterSshPort           : singleton.sshPort,
+        masterDatabasePort      : singleton.databasePort,
         slaveSize               : 2,
         slaveContainerNamePrefix: "greenplum-slave",
         slaveHostnamePrefix     : "slave",
@@ -184,6 +184,16 @@ task runCluster() {
         )
     }
     dependsOn(generateSshKey)
+}
+task testCluster() {
+    doLast {
+        testGreenPlumLoad(
+                imageWithTag,
+                "${project.ext.dockerHostInternal}", cluster.masterDatabasePort,
+                "gpadmin", "gparray",
+                60000,
+        )
+    }
 }
 task stopCluster() {
     doLast {
@@ -354,7 +364,7 @@ private String findIp(String containerName, String networkName) {
     return inspectResult[0].NetworkSettings.Networks[networkName].IPAddress
 }
 
-private void testGreenPlumService(
+private void testGreenPlumLoad(
         String imageWithTag,
         String host, int port,
         String username, String password,

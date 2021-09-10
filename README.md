@@ -37,12 +37,13 @@
 * docker to build/run greenplum
 
 ### prepare
+
 * build docker image
     + optional(you can also download it from docker hub)
     + you need a buildx environment: [develop with docker](https://blog.geekcity.tech/#/docs/develop.with.docker)
         1. make sure your buildx environment is ready: `docker buildx ls`
         2. make sure docker registry is ready if not pushing images to docker hub: `docker ps -a`
-* without docker hub 
+* without docker hub
     + ```shell
       export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :buildDockerImage
       ```
@@ -51,7 +52,8 @@
       export IMAGE_REPOSITORY=wangz2019/greenplum-docker && ./gradlew :buildDockerImage
       ```
 
-### single node
+### singleton
+
 1. start service
     * ```shell
       export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :runSingleton
@@ -61,7 +63,7 @@
     * greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
 2. test service
     * ```shell
-      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testSingletonGreenPlumService
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testSingleton
       ```
     * what does test do?
         1. create a database named `mydatabase`
@@ -73,57 +75,31 @@
     * ```shell
       ./gradlew :stopSingleton
       ```
----
 
 ### cluster
-1. create network
-    + optional
-    + ```shell
-      ./gradlew :createNetwork
-      ```
 
+1. create network
+    + ```shell
+      ./gradlew :createClusterNetwork
+      ```
 2. start service
-    * run master with slave docker container
-        + ```shell
-          ./gradlew :runMasterWithSlaveDockerContainer
-          ```
-        + ssh service will be exposed with port 1022
-        + greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
-    * init master with cluster service
-        + ```shell
-          ./gradlew :initMasterWithSlaveGpService
-          ```
-        + idempotent operation
-    * run cluster docker container (stop master with slave docker first)
-        + ```shell
-          ./gradlew :runClusterDockerContainer
-          ```
-        + ssh service will be exposed with port 1022
-        + greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
-    * init cluster service
-        + ```shell
-          ./gradlew :initClusterGpService
-          ```
-        + idempotent operation
+    * ```shell
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :runCluster
+      ```
+    * change IMAGE_REPOSITORY, whose default value is 'wangz2019/greenplum-docker', to use your own image
+    * ssh service will be exposed with port 1022
+    * greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
 3. test service
     * ```shell
-      ./gradlew :testWithGpload
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testCluster
       ```
     * what does test do?
-        1. create a database named `mydatabase`
-        2. create a table named `test_table` in `mydatabase`
-        3. load some data into `mydatabase.test_table` with `gpload`
-        4. select data from `mydatabase.test_table` before and after loading
-        5. (TODO) check data
+        + the same as singleton
 4. stop service
     * ```shell
-      ./gradlew :stopMasterWithSlaveDockerContainer
+      ./gradlew :stopCluster
       ```
+5. delete network
     * ```shell
-      ./gradlew :stopClusterDockerContainer
-      ```
-
-5. you can also jump into the container
-    * ```shell
-      docker exec --user gpadmin -it greenplum bash
+      ./gradlew :deleteClusterNetwork
       ```

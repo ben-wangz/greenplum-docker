@@ -45,10 +45,10 @@ RUN set -x \
     && mkdir -p /opt/greenplum/data/primary \
     && chown -R gpadmin:gpadmin /usr/local/greenplum* \
     && chown -R gpadmin:gpadmin /opt/greenplum
-COPY entry_point.sh /opt/greenplum/entry_point.sh
+COPY initialize.sh /opt/greenplum/initialize.sh
 COPY init_gp_service.sh /opt/greenplum/init_gp_service.sh
 RUN set -x \
-    && chmod u+x /opt/greenplum/entry_point.sh \
+    && chmod u+x /opt/greenplum/initialize.sh \
     && chmod a+x /opt/greenplum/init_gp_service.sh
 
 CMD ["/sbin/init"]

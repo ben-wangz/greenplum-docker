@@ -3,8 +3,6 @@
 set -x
 set -e
 
-SCRIPT_DIRECTORY=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
-
 source /home/gpadmin/.bashrc
 # check password less ssh
 gpssh -f /opt/greenplum/hostfile_exkeys -e 'ls -l /usr/local/greenplum-db-6.8.1'

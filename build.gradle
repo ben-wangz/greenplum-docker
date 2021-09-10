@@ -1,4 +1,9 @@
+import groovy.json.JsonSlurper
+
 import java.util.concurrent.TimeUnit
+import java.util.stream.Collectors
+import java.util.stream.IntStream
+import java.util.stream.Stream
 
 buildscript {
     repositories {
@@ -85,40 +90,24 @@ task generateSshKey(type: Exec) {
 def singleton = [
         containerName: "greenplum-singleton",
         hostname     : "gpmaster",
-        sshPort      : "1022",
-        databasePort : "5432",
+        sshPort      : 1022,
+        databasePort : 5432,
 ]
-task runSingleNode(type: Exec) {
-    doFirst {
-        println("running command: ${String.join(" ", getCommandLine())}")
-    }
-    executable("docker")
-    args(
-            "run", "--rm",
-            "-p", "${singleton.sshPort}:22",
-            "-p", "${singleton.databasePort}:5432",
-            "--platform=linux/amd64",
-            "--name", singleton.containerName,
-            "--hostname", singleton.hostname,
-            "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
-            "--privileged",
-            "-v", "${publicKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa.pub:ro",
-            "-v", "${privateKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa:ro",
-            // TODO change value
-            "-e", "ROLE=MASTERWITHSLAVE",
-            "-e", "MASTER_HOSTNAME=${singleton.hostname}",
-            "-d", imageWithTag
-    )
-    dependsOn(generateSshKey)
+task runSingleton() {
     doLast {
-        // TODO wait for ssh service to be ready: checking it
-        TimeUnit.SECONDS.sleep(30)
-        exec {
-            commandLine("docker", "exec", "-i", singleton.containerName, "/opt/greenplum/entry_point.sh")
-        }
+        runMasterNode(
+                singleton.sshPort,
+                singleton.databasePort,
+                singleton.containerName,
+                singleton.hostname,
+                publicKeyFile,
+                privateKeyFile,
+                imageWithTag,
+        )
     }
+    dependsOn(generateSshKey)
 }
-task stopSingleNode(type: Exec) {
+task stopSingleton(type: Exec) {
     doFirst {
         println("running command: ${String.join(" ", getCommandLine())}")
     }
@@ -128,7 +117,7 @@ task stopSingleNode(type: Exec) {
     )
 }
 
-task testSingleNodeGreenPlumService() {
+task testSingletonGreenPlumService() {
     doLast {
         testGreenPlumService(
                 imageWithTag,
@@ -139,15 +128,241 @@ task testSingleNodeGreenPlumService() {
     }
 }
 
+def cluster = [
+        dockerNetworkName       : "greenplum-cluster-network",
+        masterContainerName     : "greenplum-master",
+        masterHostname          : "gpmaster",
+        masterSshPort           : 1022,
+        masterDatabasePort      : 5432,
+        slaveSize               : 2,
+        slaveContainerNamePrefix: "greenplum-slave",
+        slaveHostnamePrefix     : "slave",
+]
+List<String> slaveContainerNameList = IntStream.range(0, cluster.slaveSize)
+        .boxed()
+        .map(index -> "${cluster.slaveContainerNamePrefix}-${index}")
+        .collect(Collectors.toList())
+task createClusterNetwork(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "network", "create", cluster.dockerNetworkName
+    )
+}
+task runCluster() {
+    doLast {
+        List<String> slaveHostnameList = IntStream.range(0, cluster.slaveSize)
+                .boxed()
+                .map(index -> "${cluster.slaveHostnamePrefix}-${index}")
+                .collect(Collectors.toList())
+        Map<String, String> slaveHostnameIpMapping = IntStream.range(0, cluster.slaveSize)
+                .boxed()
+                .collect(Collectors.toMap(
+                        index -> slaveHostnameList.get(index as int),
+                        index -> runSlaveNode(
+                                cluster.dockerNetworkName,
+                                slaveContainerNameList.get(index as int),
+                                slaveHostnameList.get(index as int),
+                                publicKeyFile,
+                                privateKeyFile,
+                                imageWithTag
+                        ),
+                ))
+        runMasterNode(
+                cluster.masterSshPort,
+                cluster.masterDatabasePort,
+                cluster.masterContainerName,
+                cluster.masterHostname,
+                publicKeyFile,
+                privateKeyFile,
+                imageWithTag,
+                "CLUSTER-MASTER",
+                cluster.dockerNetworkName,
+                slaveHostnameIpMapping,
+        )
+    }
+    dependsOn(generateSshKey)
+}
+task stopCluster() {
+    doLast {
+        Stream.concat(
+                slaveContainerNameList.stream(),
+                Stream.of(cluster.masterContainerName),
+        ).forEach(containerName -> {
+            exec {
+                def execSpec = commandLine("docker", "kill", containerName)
+                println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+            }
+        })
+    }
+}
+task deleteClusterNetwork(type: Exec) {
+    doFirst {
+        println("running command: ${String.join(" ", getCommandLine())}")
+    }
+    executable("docker")
+    args(
+            "network", "rm", cluster.dockerNetworkName
+    )
+}
+
+private void runMasterNode(
+        int sshPort,
+        int databasePort,
+        String containerName,
+        String hostname,
+        File publicKeyFile,
+        File privateKeyFile,
+        String imageWithTag
+) {
+    runMasterNode(
+            sshPort,
+            databasePort,
+            containerName,
+            hostname,
+            publicKeyFile,
+            privateKeyFile,
+            imageWithTag,
+            "SINGLETON",
+            null,
+            new HashMap<String, String>(),
+    )
+}
+
+private void runMasterNode(
+        int sshPort,
+        int databasePort,
+        String containerName,
+        String hostname,
+        File publicKeyFile,
+        File privateKeyFile,
+        String imageWithTag,
+        String deployType,
+        String networkName,
+        Map<String, String> slaveHostnameIpMapping
+) {
+    List<String> commandLineArray = [
+            "docker",
+            "run", "--rm",
+            "-p", "${sshPort}:22",
+            "-p", "${databasePort}:5432",
+            "--platform=linux/amd64",
+            "--name", containerName,
+            "--hostname", hostname,
+            "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
+    ]
+    if (null != networkName) {
+        commandLineArray.addAll([
+                "--net", networkName,
+        ])
+    }
+    if (null != slaveHostnameIpMapping) {
+        commandLineArray.addAll(
+                slaveHostnameIpMapping.entrySet()
+                        .stream()
+                        .flatMap(entry -> Stream.of(
+                                "--add-host", "${entry.getKey()}:${entry.getValue()}" as String))
+                        .collect(Collectors.toList())
+        )
+    }
+    commandLineArray.addAll([
+            "--privileged",
+            "-v", "${publicKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa.pub:ro",
+            "-v", "${privateKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa:ro",
+            "-e", "DEPLOY_TYPE=${deployType}",
+            "-e", "MASTER_HOSTNAME=${hostname}",
+            "-e", "SLAVE_HOSTNAME_LIST=${slaveHostnameIpMapping.keySet().stream().collect(Collectors.joining(" "))}",
+            "-d", imageWithTag
+    ])
+    exec {
+        def execSpec = commandLine(commandLineArray)
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+    waitForHealthy(containerName)
+    exec {
+        def execSpec = commandLine(
+                "docker", "exec", "-i", containerName, "/opt/greenplum/initialize.sh")
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+}
+
+private String runSlaveNode(
+        String networkName,
+        String containerName,
+        String hostname,
+        File publicKeyFile,
+        File privateKeyFile,
+        String imageWithTag
+) {
+    exec {
+        def execSpec = commandLine(
+                "docker",
+                "run", "--rm",
+                "--platform=linux/amd64",
+                "--name", containerName,
+                "--hostname", hostname,
+                "--net", networkName,
+                "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
+                "--privileged",
+                "-v", "${publicKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa.pub:ro",
+                "-v", "${privateKeyFile.getAbsolutePath()}:/opt/greenplum/ssh/id_rsa:ro",
+                "-e", "DEPLOY_TYPE=CLUSTER-SLAVE",
+                "-d", imageWithTag
+        )
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+    waitForHealthy(containerName)
+    exec {
+        def execSpec = commandLine("docker", "exec", "-i", containerName, "/opt/greenplum/initialize.sh")
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+    return findIp(containerName, networkName)
+}
+
+private void waitForHealthy(String containerName) {
+    while (!healthy(containerName)) {
+        TimeUnit.SECONDS.sleep(3)
+        println("waiting for container($containerName) to be ready...")
+    }
+}
+
+private boolean healthy(String containerName) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        def execSpec = commandLine(
+                "docker", "inspect", containerName
+        )
+        standardOutput = stdout
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+    def inspectResult = new JsonSlurper().parseText(stdout.toString())
+    return "healthy" == inspectResult[0].State.Health.Status
+}
+
+private String findIp(String containerName, String networkName) {
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        def execSpec = commandLine(
+                "docker", "inspect", containerName
+        )
+        standardOutput = stdout
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
+    }
+    def inspectResult = new JsonSlurper().parseText(stdout.toString())
+    return inspectResult[0].NetworkSettings.Networks[networkName].IPAddress
+}
+
 private void testGreenPlumService(
         String imageWithTag,
-        String host, String port,
+        String host, int port,
         String username, String password,
         int gpLoadPort
 ) {
     exec {
-        executable("docker")
-        args(
+        def execSpec = commandLine(
+                "docker",
                 "run", "--rm",
                 "--platform=linux/amd64",
                 "--add-host", "${project.ext.dockerHostInternal}:host-gateway",
@@ -161,210 +376,7 @@ private void testGreenPlumService(
                 imageWithTag,
                 "/bin/bash", "/tmp/test.sh"
         )
-    }
-}
-
-def subnet = "172.18.0.0/16"
-def netWorkName = "mynet"
-
-task createNetwork(type: Exec) {
-    executable("docker")
-    args(
-            "network", "create",
-            "--subnet", subnet,
-            netWorkName
-    )
-}
-
-def containerName = "greenplum"
-def masterhostname = "gpmaster"
-def masterIp = "172.18.0.22"
-task runMasterWithSlaveDockerContainer(type: Exec) {
-    doFirst {
-        keysDirectory.mkdirs()
-        println("running command: ${String.join(" ", getCommandLine())}")
-    }
-    executable("docker")
-    args(
-            "run", "--rm",
-            "--net", netWorkName,
-            "--ip", masterIp,
-            "-p", "1022:22",
-            "-p", "5432:5432",
-            "--platform=linux/amd64",
-            "--name", containerName,
-            "--hostname", masterhostname,
-            "--privileged",
-            "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
-            "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-            "-e", "ROLE=MASTERWITHSLAVE",
-            "-e", "MASTER_HOSTNAME=${masterhostname}",
-            "-d", imageWithTag
-    )
-    dependsOn(generateSshKey)
-}
-
-task initMasterWithSlaveGpService() {
-    doLast {
-        runInitDockerCommand(containerName)
-    }
-}
-
-List<Map<String, String>> slaveNodes = Arrays.asList(
-        new HashMap<String, String>() {
-            {
-                put("netWorkName", netWorkName)
-                put("slaveIp", "172.18.0.23")
-                put("slaveContainerName", "slave01")
-                put("slaveHostName", "slave01")
-                put("slaveSshPort", "1023")
-                put("slaveGpPort", "5433")
-                put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
-                put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
-                put("imageWithTag", imageWithTag)
-            }
-        },
-        new HashMap<String, String>() {
-            {
-                put("netWorkName", netWorkName)
-                put("slaveIp", "172.18.0.24")
-                put("slaveContainerName", "slave02")
-                put("slaveHostName", "slave02")
-                put("slaveSshPort", "1024")
-                put("slaveGpPort", "5434")
-                put("rsa_pub", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro")
-                put("rsa", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro")
-                put("imageWithTag", imageWithTag)
-            }
-        })
-task runClusterDockerContainer() {
-    doLast {
-        List<String> command = new ArrayList<>(Arrays.asList(
-                "docker",
-                "run", "--rm",
-                "--net", netWorkName,
-                "--ip", masterIp,
-                "-p", "1022:22",
-                "-p", "5432:5432",
-                "--platform=linux/amd64",
-                "--name", containerName,
-                "--hostname", masterhostname,
-                "--privileged",
-                "-v", "${keysDirectory}/id_rsa.pub:/opt/greenplum/ssh/id_rsa.pub:ro",
-                "-v", "${keysDirectory}/id_rsa:/opt/greenplum/ssh/id_rsa:ro",
-                "-e", "ROLE=CLUSTER",
-                "-e", "HOSTNAME=${masterhostname}",
-                "-e"
-        ))
-        String slaveName = "SLAVE_HOSTNAME_LIST="
-        for (Map<String, String> slaveNode : slaveNodes) {
-            slaveName += slaveNode.get("slaveHostName") + " ";
-        }
-        command.add(slaveName);
-        for (Map<String, String> slaveNode : slaveNodes) {
-            command.add("--add-host")
-            command.add(slaveNode.get("slaveHostName") + ":" + slaveNode.get("slaveIp"));
-        }
-        command.add("-d");
-        command.add(imageWithTag);
-        exec {
-            commandLine(
-                    command
-            )
-        }
-        for (Map<String, String> slaveNode : slaveNodes) {
-            runCreateSlaveDockerCommand(slaveNode)
-        }
-    }
-    dependsOn(generateSshKey)
-}
-
-private ExecResult runCreateSlaveDockerCommand(Map<String, String> slaveNode) {
-    exec {
-        commandLine(
-                "docker",
-                "run", "--rm",
-                "--net", slaveNode.get("netWorkName"),
-                "--ip", slaveNode.get("slaveIp"),
-                "-p", slaveNode.get("slaveSshPort") + ":22",
-                "-p", slaveNode.get("slaveGpPort") + ":5432",
-                "--platform=linux/amd64",
-                "--name", slaveNode.get("slaveContainerName"),
-                "--hostname", slaveNode.get("slaveHostName"),
-                "--privileged",
-                "-e", "ROLE=SLAVE",
-                "-v", slaveNode.get("rsa_pub"),
-                "-v", slaveNode.get("rsa"),
-                "-d", slaveNode.get("imageWithTag")
-        )
-    }
-}
-
-task initClusterGpService() {
-    doLast {
-        for (Map<String, String> slaveNode : slaveNodes) {
-            runInitDockerCommand(slaveNode.get("slaveContainerName"))
-        }
-        runInitDockerCommand(containerName)
-    }
-}
-
-private ExecResult runInitDockerCommand(String containerName) {
-    exec {
-        commandLine(
-                "docker",
-                "exec", containerName,
-                "/opt/greenplum/entry_point.sh",
-        )
-    }
-}
-
-def testIp = "172.18.0.25"
-def testHostName = "test"
-def testContainerName = "test"
-task testWithGpload(type: Exec) {
-    doFirst {
-        println("running command: ${String.join(" ", getCommandLine())}")
-    }
-    executable("docker")
-    args(
-            "run", "--rm",
-            "--net", netWorkName,
-            "--ip", testIp,
-            "-p", "1025:22",
-            "-p", "5435:5432",
-            "--platform=linux/amd64",
-            "--name", testContainerName,
-            "--hostname", testHostName,
-            "--privileged",
-            // TODO rename test.sh
-            "-v", "${project.file("runtime")}/test.sh:/opt/greenplum/entry_point.sh",
-            imageWithTag,
-            "/bin/bash", "/opt/greenplum/entry_point.sh"
-    )
-}
-
-task stopMasterWithSlaveDockerContainer() {
-    doLast {
-        runStopDockerCommand(containerName)
-    }
-}
-
-task stopClusterDockerContainer() {
-    doLast {
-        runStopDockerCommand(containerName)
-        for (Map<String, String> slaveNode : slaveNodes) {
-            runStopDockerCommand(slaveNode.get("slaveContainerName"))
-        }
-    }
-}
-
-private ExecResult runStopDockerCommand(String containerName) {
-    exec {
-        commandLine(
-                "docker",
-                "stop", containerName
-        )
+        println("running command: ${String.join(" ", execSpec.getCommandLine())}")
     }
 }
 

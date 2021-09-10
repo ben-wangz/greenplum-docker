@@ -3,12 +3,6 @@
 set -x
 set -e
 
-SCRIPT_DIRECTORY=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
-if [ -z "${ROLE}" ];then
-  echo "ROLE is not set"
-  exit -1
-fi
-
 initializeSsh(){
   mkdir -p /home/gpadmin/.ssh
   chmod 700 /home/gpadmin/.ssh
@@ -18,6 +12,7 @@ initializeSsh(){
   chmod 600 /home/gpadmin/.ssh/id_rsa.pub
   chmod 600 /home/gpadmin/.ssh/id_rsa
   chmod 600 /home/gpadmin/.ssh/authorized_keys
+  touch /home/gpadmin/.ssh/known_hosts
   chown -R gpadmin:gpadmin /home/gpadmin/.ssh
 }
 
@@ -59,24 +54,28 @@ EOF
   su -c /opt/greenplum/init_gp_service.sh - gpadmin
 }
 
-addSlaveInfo(){
+addSlaveList(){
   if [ -z "${SLAVE_HOSTNAME_LIST}" ];then
       echo "SLAVE_HOSTNAME_LIST should be set"
       exit -1
   fi
-  for SLAVE in ${SLAVE_HOSTNAME_LIST}
+  for SLAVE_HOSTNAME in ${SLAVE_HOSTNAME_LIST}
   do
-      ssh-keyscan ${SLAVE} >> /home/gpadmin/.ssh/known_hosts
-      echo ${SLAVE} >> /opt/greenplum/hostfile_exkeys
-      echo ${SLAVE} >> /opt/greenplum/seg_hosts
+      ssh-keyscan ${SLAVE_HOSTNAME} >> /home/gpadmin/.ssh/known_hosts
+      echo ${SLAVE_HOSTNAME} >> /opt/greenplum/hostfile_exkeys
+      echo ${SLAVE_HOSTNAME} >> /opt/greenplum/seg_hosts
   done
 }
 
 initializeSsh
-
-if [ "${ROLE}" = "MASTERWITHSLAVE" ];then
+if [ "${DEPLOY_TYPE}" = "SINGLETON" ];then
   initializeMaster
-elif [ "${ROLE}" = "CLUSTER" ];then
-  addSlaveInfo
+elif [ "${DEPLOY_TYPE}" = "CLUSTER-MASTER" ];then
+  addSlaveList
   initializeMaster
+elif [ "${DEPLOY_TYPE}" = "CLUSTER-SLAVE" ];then
+  echo "do nothing for slave in cluster"
+else
+  echo not supported type: $DEPLOY_TYPE
+  exit -1
 fi

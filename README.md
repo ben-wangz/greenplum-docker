@@ -54,14 +54,14 @@
 ### single node
 1. start service
     * ```shell
-      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :runSingleNode
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :runSingleton
       ```
     * change IMAGE_REPOSITORY, whose default value is 'wangz2019/greenplum-docker', to use your own image
     * ssh service will be exposed with port 1022
     * greenplum master service will be exposed with port 5432, which will be working after `init greenplum service`
 2. test service
     * ```shell
-      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testSingleNodeGreenPlumService
+      export IMAGE_REPOSITORY=localhost:5000/greenplum-docker && ./gradlew :testSingletonGreenPlumService
       ```
     * what does test do?
         1. create a database named `mydatabase`
@@ -71,7 +71,7 @@
         5. (TODO) check data
 3. stop service
     * ```shell
-      ./gradlew :stopSingleNode
+      ./gradlew :stopSingleton
       ```
 ---
 
